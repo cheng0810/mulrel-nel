@@ -23,19 +23,43 @@ The following instruction is for replicating the experiments reported in [1].
 Download data from [here](https://drive.google.com/open?id=1IDjXFnNnHf__MO5j_onw4YwR97oS8lAy) 
 and unzip to the main folder (i.e. your-path/mulrel-nel).
 
-#### Train
+## English version
 
-To train a 3-relation ment-norm model, from the main folder run 
+### Train
 
-    export PYTHONPATH=$PYTHONPATH:../
-    python -u -m nel.main --mode train --n_rels 3 --mulrel_type ment-norm --model_path model
- 
-Using a GTX 1080 Ti GPU it will take about 1 hour. The output is a model saved in two files: 
-`model.config` and `model.state_dict` . 
+cd your path to main folder which contain nel and data folder.
+To train a 3-relation ment-norm model, from the main folder run
+```
+python -u -m nel.main --mode train --n_rels 3 --mulrel_type ment-norm --model_path model_en --language en
+```
+Preprocess pickle is saved in `nel/preprocessing/`.
+The output is a model saved in two files: `model_en.config` and `model_en.state_dict` .
 
-#### Evaluation
+### Evaluation
 
 Execute
+```
+python -u -m nel.main --mode eval --model_path model_en
+```
+I got 93.24 accuracy on the test dataset(AIDA-B).
 
-    python -u -m nel.main --mode eval --model_path model
+## Chinese version
+
+### Train
+
+cd your path to main folder which contain nel and data folder.
+To train a 3-relation ment-norm model, from the main folder run
+```
+python -u -m nel.main --mode train --n_rels 3 --mulrel_type ment-norm --model_path model_zh --language zh --dev_f1_change_lr 0.88
+```
+Preprocess pickle is saved in `nel/preprocessing/`.
+The output is a model saved in two files: `model_zh.config` and `model_ezh.state_dict` .
+
+### Evaluation
+
+Execute
+```
+python -u -m nel.main --mode eval --model_path model_zh --language zh
+```
+I got 87.64 accuracy on the test dataset(tackbp2015_eval).
 
