@@ -23,7 +23,7 @@ def load(path, model_class, suffix=''):
         config['snd_word_voca'] = snd_word_voca
 
     model = model_class(config)
-    model.load_state_dict(torch.load(path + '.state_dict' + suffix))
+    model.load_state_dict(torch.load(path + '.state_dict' + suffix, map_location=torch.device('cpu')))
     return model
 
 

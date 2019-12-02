@@ -33,9 +33,12 @@ class NTEE(AbstractWordEntity):
         # compute scores
         batchsize, dims = sent_vecs.size()
         n_entities = entity_vecs.size(1)
-        scores = torch.bmm(entity_vecs, sent_vecs.view(batchsize, dims, 1)).view(batchsize, n_entities)
+        # print(n_entities)
 
+        #score size :(number of mentions,number of candidates)
+        scores = torch.bmm(entity_vecs, sent_vecs.view(batchsize, dims, 1)).view(batchsize, n_entities) #(mentions,candidate number,dimention) X (mentions,dimention,1) e.g. (7x30x300)*(7x300x1) = (7x30x1)
         log_probs = F.log_softmax(scores, dim=1)
+        
         return log_probs
 
     def predict(self, token_ids, token_offsets, entity_ids, gold_entity_ids=None):

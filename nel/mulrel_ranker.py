@@ -49,6 +49,7 @@ class MulRelRanker(LocalCtxAttRanker):
         self.use_local = config.get('use_local', False)
         self.use_local_only = config.get('use_local_only', False)
         self.freeze_local = config.get('freeze_local', False)
+        self.use_p_e_m = config.get('use_p_e_m', False)
 
         if self.freeze_local:
             self.att_mat_diag.requires_grad = False
@@ -116,34 +117,40 @@ class MulRelRanker(LocalCtxAttRanker):
             gold = None
 
         if self.use_local:
+            #size : (mentions, 4+4) ->4+4 candidates contains entity and local score
             local_ent_scores = super(MulRelRanker, self).forward(token_ids, tok_mask,
                                                                  entity_ids, entity_mask,
                                                                  p_e_m=None)
+            #size: (mentions, 4+4, dims)
             ent_vecs = self._entity_vecs
         else:
             ent_vecs = self.entity_embeddings(entity_ids)
             local_ent_scores = Variable(torch.zeros(n_ments, n_cands).cuda(), requires_grad=False)
 
         # compute context vectors
-        ltok_vecs = self.snd_word_embeddings(self.s_ltoken_ids) * self.s_ltoken_mask.view(n_ments, -1, 1)
+        #ltok_vecs: (mentions,3(around mention),dims), s_ltoken_ids: (mentions,3) 
+        ltok_vecs = self.snd_word_embeddings(self.s_ltoken_ids) * self.s_ltoken_mask.view(n_ments, -1, 1) #view:(mentions,3,1)
         local_lctx_vecs = torch.sum(ltok_vecs, dim=1) / torch.sum(self.s_ltoken_mask, dim=1, keepdim=True).add_(1e-5)
         rtok_vecs = self.snd_word_embeddings(self.s_rtoken_ids) * self.s_rtoken_mask.view(n_ments, -1, 1)
         local_rctx_vecs = torch.sum(rtok_vecs, dim=1) / torch.sum(self.s_rtoken_mask, dim=1, keepdim=True).add_(1e-5)
         mtok_vecs = self.snd_word_embeddings(self.s_mtoken_ids) * self.s_mtoken_mask.view(n_ments, -1, 1)
         ment_vecs = torch.sum(mtok_vecs, dim=1) / torch.sum(self.s_mtoken_mask, dim=1, keepdim=True).add_(1e-5)
-        bow_ctx_vecs = torch.cat([local_lctx_vecs, ment_vecs, local_rctx_vecs], dim=1)
+        bow_ctx_vecs = torch.cat([local_lctx_vecs, ment_vecs, local_rctx_vecs], dim=1) #concat lctx, ment, rctx size:(mentions,dims*3)
 
         if self.use_pad_ent:
+            #pad_ent_emb :(1,dims) #self.pad_ent_emb.view(1, 1, -1).repeat(1, n_cands, 1): (1,4+4,dims)
+            #ent_vecs: (mentions+1,4+4, dims) -> add a padding mention 
             ent_vecs = torch.cat([ent_vecs, self.pad_ent_emb.view(1, 1, -1).repeat(1, n_cands, 1)], dim=0)
             tmp = torch.zeros(1, n_cands)
-            tmp[0, 0] = 1
+            tmp[0, 0] = 1 #what the meaning?
             tmp = Variable(tmp.cuda())
+            #size: (mentions+1, 4+4)
             entity_mask = torch.cat([entity_mask, tmp], dim=0)
             p_e_m = torch.cat([p_e_m, tmp], dim=0)
             local_ent_scores = torch.cat([local_ent_scores,
                                           Variable(torch.zeros(1, n_cands).cuda(), requires_grad=False)],
                                          dim=0)
-            n_ments += 1
+            n_ments += 1 # because padding mention
 
             if self.oracle:
                 tmp = Variable(torch.zeros(1, 1).cuda().long())
@@ -161,24 +168,44 @@ class MulRelRanker(LocalCtxAttRanker):
 
         else:
             # distance - to consider only neighbor mentions
-            ment_pos = torch.arange(0, n_ments).long().cuda()
-            dist = (ment_pos.view(n_ments, 1) - ment_pos.view(1, n_ments)).abs()
-            dist.masked_fill_(dist == 1, -1)
-            dist.masked_fill_((dist > 1) & (dist <= self.max_dist), -1)
-            dist.masked_fill_(dist > self.max_dist, 0)
-            dist.mul_(-1)
+            ment_pos = torch.arange(0, n_ments).long().cuda() #make a mention order array [0,1,...,mentions] len = (mentions+1) cause padding
+            dist = (ment_pos.view(n_ments, 1) - ment_pos.view(1, n_ments)).abs() # Absolute value
+            """
+            dist:
+            tensor([[0, 1, 2, 3, 4],
+            		[1, 0, 1, 2, 3],
+            		[2, 1, 0, 1, 2],
+            		[3, 2, 1, 0, 1],
+            		[4, 3, 2, 1, 0]])
+            """
+            dist.masked_fill_(dist == 1, -1) #replace 1 to -1
+            dist.masked_fill_((dist > 1) & (dist <= self.max_dist), -1) # replace >1 to -1
+            dist.masked_fill_(dist > self.max_dist, 0) # if mentions amounts>1000 then replace to 0
+            dist.mul_(-1) #mul -1*-1 = 1
+            """
+            dist:
+            tensor([[0, 1, 1, 1, 1],
+            		[1, 0, 1, 1, 1],
+            		[1, 1, 0, 1, 1],
+            		[1, 1, 1, 0, 1],
+            		[1, 1, 1, 1, 0]])
+            """
 
-            ctx_vecs = self.ctx_layer(bow_ctx_vecs)
+            # bow_ctx_vecs:(mentions,dims*3) -> (0): Linear() (1): Tanh() (2): Dropout() -> ctx_vecs:(mentions,dims)
+            ctx_vecs = self.ctx_layer(bow_ctx_vecs) # Fig.3 function f
             if self.use_pad_ent:
-                ctx_vecs = torch.cat([ctx_vecs, self.pad_ctx_vec], dim=0)
-
+                ctx_vecs = torch.cat([ctx_vecs, self.pad_ctx_vec], dim=0) #add a random 300d vector as padding mention
             m1_ctx_vecs, m2_ctx_vecs = ctx_vecs, ctx_vecs
-            rel_ctx_vecs = m1_ctx_vecs.view(1, n_ments, -1) * self.ew_embs.view(n_rels, 1, -1)
-            rel_ctx_ctx_scores = torch.matmul(rel_ctx_vecs, m2_ctx_vecs.view(1, n_ments, -1).permute(0, 2, 1))  # n_rels x n_ments x n_ments
 
-            rel_ctx_ctx_scores = rel_ctx_ctx_scores.add_((1 - Variable(dist.float().cuda())).mul_(-1e10))
-            eye = Variable(torch.eye(n_ments).cuda()).view(1, n_ments, n_ments)
-            rel_ctx_ctx_scores.add_(eye.mul_(-1e10))
+            #(1, mentions+1, dims)*(rels, 1, dims) = (rels, mentions+1, dims)
+            # ew_embs is a randn tensor
+            rel_ctx_vecs = m1_ctx_vecs.view(1, n_ments, -1) * self.ew_embs.view(n_rels, 1, -1) #let the mentions have the relation between each other
+            
+            #size:(rel, mentions+1, dims)*(1, dims, mentions+1) = (rels, mentions+1, mentions+1)
+            rel_ctx_ctx_scores = torch.matmul(rel_ctx_vecs, m2_ctx_vecs.view(1, n_ments, -1).permute(0, 2, 1)) #f*D*f.T ??? why??
+            rel_ctx_ctx_scores = rel_ctx_ctx_scores.add_((1 - Variable(dist.float().cuda())).mul_(-1e10)) #diag index set to -1*10^10 cause we don't need the socre for mentions itself
+            eye = Variable(torch.eye(n_ments).cuda()).view(1, n_ments, n_ments) #a 2d ary that diag index is all 1 and other is all 0
+            rel_ctx_ctx_scores.add_(eye.mul_(-1e10)) #set all diag to Infinitesimal (I think dist op is different with eye but i don't know why)
             rel_ctx_ctx_scores.mul_(1 / np.sqrt(self.ew_hid_dims))  # scaling proposed by "attention is all you need"
 
             # get top_n neighbour
@@ -189,22 +216,37 @@ class MulRelRanker(LocalCtxAttRanker):
                 rel_ctx_ctx_scores.add_(mask.mul_(-1e10))
 
             if self.mode == 'ment-norm':
-                rel_ctx_ctx_probs = F.softmax(rel_ctx_ctx_scores, dim=2)
-                rel_ctx_ctx_weights = rel_ctx_ctx_probs + rel_ctx_ctx_probs.permute(0, 2, 1)
+                # size:(rels,mentions,mentions)
+                """
+                example:
+                for one rel:(3 x 3)
+                mention1[[0., 1., 1.],
+                mention2[2., 0., 3.],
+                mention3[1., 1., 0.]]
+                softmax
+                mention1[[0.1554, 0.4223, 0.4223], --> sum = 1
+                mention2[0.2595, 0.0351, 0.7054],  --> sum = 1
+                mention3[0.4223, 0.4223, 0.1554]]  --> sum = 1
+                """
+                rel_ctx_ctx_probs = F.softmax(rel_ctx_ctx_scores, dim=2) #for one mention to softmax other mentions score
+                rel_ctx_ctx_weights = rel_ctx_ctx_probs + rel_ctx_ctx_probs.permute(0, 2, 1) #let the weight bigger
+                # size:(rels, mentions+1, mentions+1)
                 self._rel_ctx_ctx_weights = rel_ctx_ctx_probs
             elif self.mode == 'rel-norm':
                 ctx_ctx_rel_scores = rel_ctx_ctx_scores.permute(1, 2, 0).contiguous()
                 if not self.use_stargmax:
-                    ctx_ctx_rel_probs = F.softmax(ctx_ctx_rel_scores.view(n_ments * n_ments, n_rels))\
+                    ctx_ctx_rel_probs = F.softmax(ctx_ctx_rel_scores.view(n_ments * n_ments, n_rels),dim = 1)\
                                         .view(n_ments, n_ments, n_rels)
                 else:
                     ctx_ctx_rel_probs = STArgmax.apply(ctx_ctx_rel_scores)
+                print()
                 self._rel_ctx_ctx_weights = ctx_ctx_rel_probs.permute(2, 0, 1).contiguous()
 
             # compute phi(ei, ej)
             if self.mode == 'ment-norm':
                 if self.ent_ent_comp == 'bilinear':
                     if self.ent_ent_comp == 'bilinear':
+                        # (n_rels, n_ments, n_cands, dims) = (1, n_ments, n_cands, dims)*(n_rels, 1, 1, dims)
                         rel_ent_vecs = ent_vecs.view(1, n_ments, n_cands, -1) * self.rel_embs.view(n_rels, 1, 1, -1)
                     elif self.ent_ent_comp == 'trans_e':
                         rel_ent_vecs = ent_vecs.view(1, n_ments, n_cands, -1) - self.rel_embs.view(n_rels, 1, 1, -1)
@@ -236,6 +278,7 @@ class MulRelRanker(LocalCtxAttRanker):
 
                 for _ in range(self.n_loops):
                     mask = 1 - Variable(torch.eye(n_ments).cuda())
+                    # n_ments x n_cands x n_ments x n_cands
                     ent_ent_votes = ent_ent_scores + local_ent_scores * 1 + \
                                     torch.sum(prev_msgs.view(1, n_ments, n_cands, n_ments) *
                                               mask.view(n_ments, 1, 1, n_ments), dim=3)\
@@ -248,18 +291,19 @@ class MulRelRanker(LocalCtxAttRanker):
                 # compute marginal belief
                 mask = 1 - Variable(torch.eye(n_ments).cuda())
                 ent_scores = local_ent_scores * 1 + torch.sum(msgs * mask.view(n_ments, 1, n_ments), dim=2)
+                # size: (mentions, n_cands)
                 ent_scores = F.softmax(ent_scores, dim=1)
             else:
                 onehot_gold = Variable(torch.zeros(n_ments, n_cands).cuda()).scatter_(1, gold, 1)
                 ent_scores = torch.sum(torch.sum(ent_ent_scores * onehot_gold, dim=3), dim=2)
 
-        # combine with p_e_m
+        # # combine with p_e_m
         inputs = torch.cat([ent_scores.view(n_ments * n_cands, -1),
                             torch.log(p_e_m + 1e-20).view(n_ments * n_cands, -1)], dim=1)
         scores = self.score_combine(inputs).view(n_ments, n_cands)
 
         if self.use_pad_ent:
-            scores = scores[:-1]
+            scores = scores[:-1] # we don't need the padding mention score
         return scores
 
     def regularize(self, max_norm=1):

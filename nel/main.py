@@ -1,3 +1,4 @@
+import os
 import nel.dataset as D
 from nel.mulrel_ranker import MulRelRanker
 from nel.ed_ranker import EDRanker
@@ -11,13 +12,13 @@ import argparse
 parser = argparse.ArgumentParser()
 
 
-datadir = 'data/generated/test_train_data/'
-conll_path = 'data/basic_data/test_datasets/'
+datadir = 'data/generated/test_train_data'
+conll_path = 'data/basic_data/test_datasets'
 person_path = 'data/basic_data/p_e_m_data/persons.txt'
 voca_emb_dir = 'data/generated/embeddings/word_ent_embs/'
 
-ModelClass = MulRelRanker
-
+ModelClass = MulRelRanker 
+ 
 
 # general args
 parser.add_argument("--mode", type=str,
@@ -26,6 +27,11 @@ parser.add_argument("--mode", type=str,
 parser.add_argument("--model_path", type=str,
                     help="model path to save/load",
                     default='')
+
+#args for languages(modify by cheng)
+parser.add_argument("--language", type=str,
+                    help="English or Chinese(en, zh)",
+                    default='en')
 
 # args for preranking (i.e. 2-step candidate selection)
 parser.add_argument("--n_cands_before_rank", type=int,
@@ -39,7 +45,14 @@ parser.add_argument("--keep_p_e_m", type=int,
                     default=4)
 parser.add_argument("--keep_ctx_ent", type=int,
                     help="number of top candidates to keep w.r.t using context",
-                    default=4)
+                    default=3)
+# first selection
+parser.add_argument("--keep_top", type= int,
+					help="number to keep top p_e_m for choose cands",
+					default=10)
+parser.add_argument("--cands_threshold", type=float,
+					help="threshold to cosine similarity",
+					default=0.5)
 
 # args for local model
 parser.add_argument("--ctx_window", type=int,
@@ -56,7 +69,7 @@ parser.add_argument("--mulrel_type", type=str,
                     default='ment-norm')
 parser.add_argument("--n_rels", type=int,
                     help="number of relations",
-                    default=5)
+                    default=3)
 parser.add_argument("--hid_dims", type=int,
                     help="number of hidden neurons",
                     default=100)
@@ -67,14 +80,13 @@ parser.add_argument("--dropout_rate", type=float,
                     help="dropout rate for relation scores",
                     default=0.3)
 
-
 # args for training
 parser.add_argument("--n_epochs", type=int,
                     help="max number of epochs",
                     default=200)
 parser.add_argument("--dev_f1_change_lr", type=float,
                     help="dev f1 to change learning rate",
-                    default=0.915)
+                    default=0.917)
 parser.add_argument("--n_not_inc", type=int,
                     help="number of evals after dev f1 not increase",
                     default=10)
@@ -99,6 +111,7 @@ parser.add_argument("--n_loops", type=int,
 # args for debugging
 parser.add_argument("--print_rel", action='store_true')
 parser.add_argument("--print_incorrect", action='store_true')
+parser.add_argument("--print_correct", action='store_true')
 
 
 args = parser.parse_args()
@@ -106,18 +119,34 @@ args = parser.parse_args()
 
 if __name__ == "__main__":
     print('load conll at', datadir)
-    conll = D.CoNLLDataset(datadir, person_path, conll_path)
+    conll = D.CoNLLDataset(datadir, person_path, conll_path, args.language)
 
-    print('create model')
-    word_voca, word_embeddings = utils.load_voca_embs(voca_emb_dir + 'dict.word',
-                                                      voca_emb_dir + 'word_embeddings.npy')
-    print('word voca size', word_voca.size())
-    snd_word_voca, snd_word_embeddings = utils.load_voca_embs(voca_emb_dir + '/glove/dict.word',
-                                                              voca_emb_dir + '/glove/word_embeddings.npy')
-    print('snd word voca size', snd_word_voca.size())
+    #choose language
+    if(args.language == 'en'):
+        print('create model')
+        word_voca, word_embeddings = utils.load_voca_embs(voca_emb_dir + 'dict.word',
+                                                          voca_emb_dir + 'word_embeddings.npy')
+        print('word voca size', word_voca.size())
+        snd_word_voca, snd_word_embeddings = utils.load_voca_embs(voca_emb_dir + '/glove/dict.word',
+                                                                  voca_emb_dir + '/glove/word_embeddings.npy')
+        print('snd word voca size', snd_word_voca.size())
 
-    entity_voca, entity_embeddings = utils.load_voca_embs(voca_emb_dir + 'dict.entity',
-                                                          voca_emb_dir + 'entity_embeddings.npy')
+        entity_voca, entity_embeddings = utils.load_voca_embs(voca_emb_dir + 'dict.entity',
+                                                              voca_emb_dir + 'entity_embeddings.npy')
+    elif(args.language == 'zh'):
+        print('create model')
+        word_voca, word_embeddings = utils.load_voca_embs(voca_emb_dir + 'dict.word_zh', 
+                                                          voca_emb_dir + 'word_embedding_zh.npy')
+        print('word voca size', word_voca.size())
+        snd_word_voca, snd_word_embeddings = utils.load_voca_embs(voca_emb_dir + 'dict.word_zh',
+                                                                  voca_emb_dir + 'word_embedding_zh.npy')
+        print('snd word voca size', snd_word_voca.size())
+
+        entity_voca, entity_embeddings = utils.load_voca_embs(voca_emb_dir + 'dict.entity',
+                                                              voca_emb_dir + 'entity_embeddings.npy')
+    else:
+        raise Exception(arg.language + ' doesn\'t exist')
+
     config = {'hid_dims': args.hid_dims,
               'emb_dims': entity_embeddings.shape[1],
               'freeze_embs': True,
@@ -143,30 +172,35 @@ if __name__ == "__main__":
     pprint(config)
     ranker = EDRanker(config=config)
 
-    dev_datasets = [('aida-A', conll.testA),
-                    ('aida-B', conll.testB),
-                    ('msnbc', conll.msnbc),
-                    ('aquaint', conll.aquaint),
-                    ('ace2004', conll.ace2004),
-                    ('clueweb', conll.clueweb),
-                    ('wikipedia', conll.wikipedia)
-                    ]
+    if args.language == 'en':
+        dev_datasets = [('aida-A', conll.testA),
+                        ('aida-B', conll.testB),
+                        ('msnbc', conll.msnbc),
+                        ('aquaint', conll.aquaint),
+                        ('ace2004', conll.ace2004),
+                        ('clueweb', conll.clueweb),
+                        ('wikipedia', conll.wikipedia)]
+    elif args.language == 'zh':
+        dev_datasets = [('tackbp2015_dev', conll.tac2015_dev),
+                        ('tackbp2015_eval', conll.tac2015_eval)]        
 
     if args.mode == 'train':
         print('training...')
         config = {'lr': args.learning_rate, 'n_epochs': args.n_epochs}
         pprint(config)
-        ranker.train(conll.train, dev_datasets, config)
+        if args.language == 'en':
+            ranker.train(conll.train, dev_datasets, config)
+        elif args.language == 'zh':
+            ranker.train(conll.tac2015_train, dev_datasets, config)
 
     elif args.mode == 'eval':
         org_dev_datasets = dev_datasets  # + [('aida-train', conll.train)]
         dev_datasets = []
-        for dname, data in org_dev_datasets:
-            dev_datasets.append((dname, ranker.get_data_items(data, predict=True)))
+        for dname, data in org_dev_datasets:               
+            dev_datasets.append((dname, ranker.get_data_items_load(data,dname, predict=True)))
             print(dname, '#dev docs', len(dev_datasets[-1][1]))
 
         vecs = ranker.model.rel_embs.cpu().data.numpy()
-
         for di, (dname, data) in enumerate(dev_datasets):
             ranker.model._coh_ctx_vecs = []
             predictions = ranker.predict(data)

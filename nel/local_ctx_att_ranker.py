@@ -19,7 +19,7 @@ class LocalCtxAttRanker(AbstractWordEntity):
         self.tok_top_n = config['tok_top_n']
         self.margin = config['margin']
 
-        self.att_mat_diag = nn.Parameter(torch.ones(self.emb_dims))
+        self.att_mat_diag = nn.Parameter(torch.ones(self.emb_dims)) #mul this and the tensor can be trained?
         self.tok_score_mat_diag = nn.Parameter(torch.ones(self.emb_dims))
         self.local_ctx_dr = nn.Dropout(p=0)
 
@@ -50,23 +50,31 @@ class LocalCtxAttRanker(AbstractWordEntity):
             print([(self.word_voca.id2word[t], a[0]) for t, a in zip(selected_tids, ap)])
 
     def forward(self, token_ids, tok_mask, entity_ids, entity_mask, p_e_m=None):
-        batchsize, n_words = token_ids.size()
-        n_entities = entity_ids.size(1)
-        tok_mask = tok_mask.view(batchsize, 1, -1)
+        batchsize, n_words = token_ids.size() # batchsize : how many mentions, n_words : 1 mentions' context around
+        n_entities = entity_ids.size(1) # 4+4
+        tok_mask = tok_mask.view(batchsize, 1, -1) # size : (mentions, 1, context len)
 
-        tok_vecs = self.word_embeddings(token_ids)
-        entity_vecs = self.entity_embeddings(entity_ids)
+        tok_vecs = self.word_embeddings(token_ids) #size : (mentions, context len, dimentions)
+        entity_vecs = self.entity_embeddings(entity_ids) # size : (mentions, 4+4, dimentions)
 
         # att
-        ent_tok_att_scores = torch.bmm(entity_vecs * self.att_mat_diag, tok_vecs.permute(0, 2, 1))
+        #((mentions, 4+4, dimentions) * (mentions, dimentions, context len)) = (mentions,4+4,context len)
+        ent_tok_att_scores = torch.bmm(entity_vecs * self.att_mat_diag, tok_vecs.permute(0, 2, 1)) #score the entity and context word 
+        #((mentions,4+4,context len)*(mentions,1,context len) = (mentions, 4+4, context)
         ent_tok_att_scores = (ent_tok_att_scores * tok_mask).add_((tok_mask - 1).mul_(1e10))
-        tok_att_scores, _ = torch.max(ent_tok_att_scores, dim=1)
+        #(mentions,context len) why don't consider the candidate??
+        tok_att_scores, _ = torch.max(ent_tok_att_scores, dim=1) #choose the max score between (candidates*context word) for every context word
         top_tok_att_scores, top_tok_att_ids = torch.topk(tok_att_scores, dim=1, k=min(self.tok_top_n, n_words))
-        att_probs = F.softmax(top_tok_att_scores, dim=1).view(batchsize, -1, 1)
-        att_probs = att_probs / torch.sum(att_probs, dim=1, keepdim=True)
+        #calculate token top word attention score
+        #att_probs size : (mentions,25(tok_top_n),1)
+        att_probs = F.softmax(top_tok_att_scores, dim=1).view(batchsize, -1, 1) #for every mention's context attention
+        att_probs = att_probs / torch.sum(att_probs, dim=1, keepdim=True) #why need to do this again?
 
+        #select out the top 25 id's embedding and mul with the attention
+        #selected_tok_vecs: (mentions,top_n,dims) chose index size: (mentions,top_n,dims)
         selected_tok_vecs = torch.gather(tok_vecs, dim=1,
-                                         index=top_tok_att_ids.view(batchsize, -1, 1).repeat(1, 1, tok_vecs.size(2)))
+                                         index=top_tok_att_ids.view(batchsize, -1, 1).repeat(1, 1, tok_vecs.size(2))) #because token_vec is 300d so we need to choose the id of all 300d
+
         ctx_vecs = torch.sum((selected_tok_vecs * self.tok_score_mat_diag) * att_probs, dim=1, keepdim=True)
         ctx_vecs = self.local_ctx_dr(ctx_vecs)
         ent_ctx_scores = torch.bmm(entity_vecs, ctx_vecs.permute(0, 2, 1)).view(batchsize, n_entities)
