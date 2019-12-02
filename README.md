@@ -23,9 +23,8 @@ The following instruction is for replicating the experiments reported in [1].
 Download data from [here](https://drive.google.com/open?id=1IDjXFnNnHf__MO5j_onw4YwR97oS8lAy) 
 and unzip to the main folder (i.e. your-path/mulrel-nel).
 
-```
-Due to the copyright of the Tackbp 2015 files([LDC2015E103: TAC KBP 2015 Tri-Lingual Entity Discovery and Linking Evaluation Gold Standard Entity Mentions and Knowledge Base Links](https://tac.nist.gov//2015/KBP/data.html)), we only give the sample of Chinese data.
-```
+Due to the copyright of the Tackbp 2015 files([LDC2015E103: TAC KBP 2015 Tri-Lingual Entity Discovery and Linking Evaluation Gold Standard Entity Mentions and Knowledge Base Links](https://tac.nist.gov//2015/KBP/data.html)), we only give the sample of Chinese data(dev data).
+
 
 ## English version
 
