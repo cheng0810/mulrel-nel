@@ -12,7 +12,7 @@ Written and maintained by Phong Le (ple [at] exseed.ed.ac.uk )
 ### Installation
 
 - Requirements: Python 3.5 or 3.6, Pytorch 0.3, CUDA 7.5 or 8
-- Package: jieba 0.39, numpy 1.16.2, hanziconv 0.3.2, scikit-learn 0.20.3 
+- Package: jieba 0.39, numpy 1.16.2, hanziconv 0.3.2, scikit-learn 0.20.3, tqdm 4.36.1 
 
 If you want to auto install all the package, please run the command below: 
 ```
