@@ -15,6 +15,7 @@ Written and maintained by Phong Le (ple [at] exseed.ed.ac.uk )
 - Package: jieba 0.39, numpy 1.16.2, hanziconv 0.3.2, scikit-learn 0.20.3 
 
 If you want to auto install all the package, please run the command below: 
+
 Download: [requirement.txt](https://drive.google.com/file/d/1gjjWW5whe8ytSCYT-YSfwKeRMj6Wqr3Y/view?usp=sharing)
 ```
 pip install -r requirements.txt
