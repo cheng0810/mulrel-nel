@@ -12,7 +12,7 @@ Written and maintained by Phong Le (ple [at] exseed.ed.ac.uk )
 ### Installation
 
 - Requirements: Python 3.5 or 3.6, Pytorch 0.3, CUDA 7.5 or 8
-- Package: torch, os, argparse, pprint, numpy, random, hanziconv, jieba, time, pickle, io, json, re, csv
+- Package: jieba 0.39, numpy 1.16.2, hanziconv 0.3.2, scikit-learn 0.20.3, 
 
 ### Usage
 
