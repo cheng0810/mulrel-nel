@@ -14,6 +14,12 @@ Written and maintained by Phong Le (ple [at] exseed.ed.ac.uk )
 - Requirements: Python 3.5 or 3.6, Pytorch 0.3, CUDA 7.5 or 8
 - Package: jieba 0.39, numpy 1.16.2, hanziconv 0.3.2, scikit-learn 0.20.3 
 
+it will be more convenience to install the package throught the command below: 
+Download: [requirement.txt](https://drive.google.com/file/d/1gjjWW5whe8ytSCYT-YSfwKeRMj6Wqr3Y/view?usp=sharing)
+```
+pip install -r requirements.txt
+```
+
 ### Usage
 
 The following instruction is for replicating the experiments reported in [1]. 
