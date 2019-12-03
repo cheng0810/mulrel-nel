@@ -2,5 +2,5 @@ hanziconv==0.3.2
 jieba==0.39
 numpy==1.16.5
 numpydoc==0.9.1
-scikit-learn==0.21.3
+scikit-learn==0.20.3
 tqdm==4.36.1
